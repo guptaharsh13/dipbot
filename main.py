@@ -29,17 +29,17 @@ NIFTY_SYMBOL = "^NSEI"
 # Alert thresholds and their corresponding emojis and prefixes
 ALERT_LEVELS = [
     {
-        "threshold": float(os.getenv("ALERT_THRESHOLD_1", "0.01")),
+        "threshold": float(os.getenv("ALERT_THRESHOLD_1", "-0.01")),
         "emoji": "⚠️",
         "prefix": "ALERT",
     },
     {
-        "threshold": float(os.getenv("ALERT_THRESHOLD_2", "0.03")),
+        "threshold": float(os.getenv("ALERT_THRESHOLD_2", "-0.03")),
         "emoji": "🚨",
         "prefix": "WARNING",
     },
     {
-        "threshold": float(os.getenv("ALERT_THRESHOLD_3", "0.06")),
+        "threshold": float(os.getenv("ALERT_THRESHOLD_3", "-0.06")),
         "emoji": "🔥",
         "prefix": "CRITICAL",
     },
@@ -97,7 +97,7 @@ async def get_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     status_message = (
         f"Bot Status:\n"
         f"Alerts: {'Paused' if alerts_paused else 'Active'}\n"
-        f"Alert Thresholds: {', '.join([f'{t:.1%}' for t in ALERT_THRESHOLDS])}\n"
+        f"Alert Thresholds: {', '.join([f'{t['threshold']:.1%}' for t in ALERT_LEVELS])}\n"
         f"Check Interval: {CHECK_INTERVAL} seconds\n"
         f"Morning Update Time: {MORNING_UPDATE_TIME}"
     )
@@ -187,7 +187,9 @@ async def check_and_send_alert(
 ) -> None:
     """Check if an alert should be sent and send it with the appropriate formatting."""
     for level in reversed(ALERT_LEVELS):
-        if price_change <= -level["threshold"]:
+        threshold = level["threshold"]
+        print(threshold, price_change)
+        if (threshold > 0 and price_change >= threshold) or (threshold < 0 and price_change <= threshold):
             await send_alert(
                 context, index_name, current_price, previous_close, price_change, level
             )
@@ -203,12 +205,13 @@ async def send_alert(
     alert_level: dict,
 ) -> None:
     """Send an alert message for a specific index with formatting based on the alert level."""
+    direction = "up" if price_change > 0 else "down"
     message = (
         f"{alert_level['emoji']} {alert_level['prefix']}: {index_name} "
-        f"down {abs(price_change):.2%}\n\n"
+        f"{direction} {abs(price_change):.2%}\n\n"
         f"Current: {current_price:.2f}\n"
         f"Previous: {previous_close:.2f}\n"
-        f"Change: {price_change:.2%}\n\n"
+        f"Change: {price_change:+.2%}\n\n"
         f"Threshold: {alert_level['threshold']:.1%}\n"
         f"Use /stop_alerts to pause"
     )
@@ -224,7 +227,7 @@ async def send_daily_status(
     nifty_change: float,
 ) -> None:
     """Send daily morning status update."""
-    message = f"📊 Daily Market Update ({MORNING_UPDATE_TIME}):\n\n"
+    message = f"📊 Daily Market Update\n\n"
     message += f"Sensex: {sensex_price:.2f} ({sensex_change:+.2%})\n"
     message += f"Nifty: {nifty_price:.2f} ({nifty_change:+.2%})"
     await context.bot.send_message(chat_id=NOTIFICATION_CHAT_ID, text=message)
