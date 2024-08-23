@@ -188,7 +188,6 @@ async def check_and_send_alert(
     """Check if an alert should be sent and send it with the appropriate formatting."""
     for level in reversed(ALERT_LEVELS):
         threshold = level["threshold"]
-        print(threshold, price_change)
         if (threshold > 0 and price_change >= threshold) or (threshold < 0 and price_change <= threshold):
             await send_alert(
                 context, index_name, current_price, previous_close, price_change, level

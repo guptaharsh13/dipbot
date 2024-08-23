@@ -1,0 +1,7 @@
+services:
+  dipbot:
+    build: .
+    container_name: dipbot
+    env_file:
+      - .env
+    restart: unless-stopped
