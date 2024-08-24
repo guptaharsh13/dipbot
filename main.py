@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timedelta
 import yfinance as yf
 from telegram import Update
+from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, ContextTypes
 from dotenv import load_dotenv
 
@@ -55,53 +56,104 @@ MORNING_UPDATE_TIME = os.getenv("MORNING_UPDATE_TIME", "09:15")
 alerts_paused = False
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /start is issued."""
-    await update.message.reply_text(
-        "Welcome to the Refined Indian Stock Market Monitor Bot!"
-    )
+import os
+import asyncio
+import logging
+from datetime import datetime, timedelta
+import yfinance as yf
+from telegram import Update
+from telegram.constants import ParseMode
+from telegram.ext import Application, CommandHandler, ContextTypes
+from dotenv import load_dotenv
 
+# ... (previous code remains unchanged)
+
+def escape_markdown(text):
+    """Helper function to escape special characters for MarkdownV2."""
+    escape_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    return ''.join('\\' + char if char in escape_chars else char for char in text)
+
+import os
+import asyncio
+import logging
+from datetime import datetime, timedelta
+import yfinance as yf
+import re
+from telegram import Update
+from telegram.constants import ParseMode
+from telegram.ext import Application, CommandHandler, ContextTypes
+from dotenv import load_dotenv
+
+
+def escape_markdown_v2(text):
+    """Helper function to escape special characters for MarkdownV2."""
+    escape_chars = r'_*[]()~`>#+-=|{}.!'
+    return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', str(text))
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send a welcome message when the command /start is issued."""
+    welcome_message = (
+        "🚀 *Welcome to the Refined Indian Stock Market Monitor Bot\\!*\n\n"
+        "I'm here to keep you updated on the Sensex and Nifty indices\\. "
+        "Here's what I can do for you:\n\n"
+        "• Send regular price updates\n"
+        "• Alert you about significant market movements\n"
+        "• Provide daily morning updates\n\n"
+        "To get started, try the /help command to see all available options\\."
+    )
+    await update.message.reply_text(welcome_message, parse_mode=ParseMode.MARKDOWN_V2)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /help is issued."""
+    """Send a detailed help message when the command /help is issued."""
     help_text = (
-        "Available commands:\n"
-        "/start - Start the bot\n"
-        "/help - Show this help message\n"
-        "/check - Manually check current stock prices\n"
-        "/stop_alerts - Pause alerts until next morning\n"
-        "/resume_alerts - Resume alerts\n"
-        "/status - Get current bot status"
+        "📚 *Available Commands:*\n\n"
+        "• /start \\- Initialize the bot and get a welcome message\n"
+        "• /help \\- Display this help message\n"
+        "• /check \\- Manually request current stock prices\n"
+        "• /stop\\_alerts \\- Pause alerts until the next morning\n"
+        "• /resume\\_alerts \\- Resume paused alerts\n"
+        "• /status \\- Get the current bot configuration and status\n\n"
+        "ℹ️ The bot will automatically send alerts for significant market movements "
+        "and provide a daily morning update at the configured time\\."
     )
-    await update.message.reply_text(help_text)
-
+    await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN_V2)
 
 async def stop_alerts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Pause alerts until next morning."""
     global alerts_paused
     alerts_paused = True
-    await update.message.reply_text(
-        "Alerts have been paused until the next morning update."
+    response = (
+        "🔕 *Alerts Paused*\n\n"
+        "All alerts have been paused until the next morning update\\. "
+        "You will still receive the daily morning update as scheduled\\.\n\n"
+        "Use /resume\\_alerts to reactivate alerts at any time\\."
     )
-
+    await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN_V2)
 
 async def resume_alerts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Resume alerts."""
     global alerts_paused
     alerts_paused = False
-    await update.message.reply_text("Alerts have been resumed.")
-
+    response = (
+        "🔔 *Alerts Resumed*\n\n"
+        "Alert notifications have been reactivated\\. "
+        "You will now receive alerts for significant market movements as they occur\\."
+    )
+    await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN_V2)
 
 async def get_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Get current bot status."""
+    """Get current bot status and configuration."""
+    alert_thresholds = '  '.join([f"{t['emoji']} {escape_markdown_v2(f'{t['threshold']:.1%}')}" for t in ALERT_LEVELS])
+    
     status_message = (
-        f"Bot Status:\n"
-        f"Alerts: {'Paused' if alerts_paused else 'Active'}\n"
-        f"Alert Thresholds: {', '.join([f'{t['threshold']:.1%}' for t in ALERT_LEVELS])}\n"
-        f"Check Interval: {CHECK_INTERVAL} seconds\n"
-        f"Morning Update Time: {MORNING_UPDATE_TIME}"
+        "🤖 *Bot Status and Configuration*\n\n"
+        f"• *Alerts:* {'🔕 Paused' if alerts_paused else '🔔 Active'}\n"
+        f"• *Alert Thresholds:*\n  {alert_thresholds}\n"
+        f"• *Check Interval:* Every {CHECK_INTERVAL // 60} minutes\n"
+        f"• *Morning Update:* Scheduled at {MORNING_UPDATE_TIME}\n\n"
+        "Use /help to see available commands\\."
     )
-    await update.message.reply_text(status_message)
+    await update.message.reply_text(status_message, parse_mode=ParseMode.MARKDOWN_V2)
 
 
 def get_stock_data(symbol: str, days: int = 5):
@@ -203,20 +255,23 @@ async def send_alert(
     price_change: float,
     alert_level: dict,
 ) -> None:
-    """Send an alert message for a specific index with formatting based on the alert level."""
-    direction = "up" if price_change > 0 else "down"
+    """Send an alert message for a specific index with improved formatting based on the alert level."""
+    direction = "⬆️" if price_change > 0 else "⬇️"
+    change_abs = abs(price_change)
+    
+    # Determine color based on direction
+    color = "🟢" if price_change > 0 else "🔴"
+    
     message = (
-        f"{alert_level['emoji']} {alert_level['prefix']}: {index_name} "
-        f"{direction} {abs(price_change):.2%}\n\n"
-        f"Current: {current_price:.2f}\n"
-        f"Previous: {previous_close:.2f}\n"
-        f"Change: {price_change:+.2%}\n\n"
-        f"Threshold: {alert_level['threshold']:.1%}\n"
-        f"Use /stop_alerts to pause"
+        f"{alert_level['emoji']} *{alert_level['prefix']}: {escape_markdown_v2(index_name)} {direction} {escape_markdown_v2(f'{change_abs:.2%}')}*\n\n"
+        f"{color} *Current Price:* {escape_markdown_v2(f'{current_price:.2f}')}\n"
+        f"📊 *Previous Close:* {escape_markdown_v2(f'{previous_close:.2f}')}\n"
+        f"{direction} *Change:* {escape_markdown_v2(f'{price_change:+.2%}')} \\({escape_markdown_v2(f'{current_price - previous_close:+.2f}')}\\)\n\n"
+        f"🎯 *Alert Threshold:* {escape_markdown_v2(f'{alert_level['threshold']:.1%}')}\n\n"
+        "_Use /stop\\_alerts to pause notifications_"
     )
     logger.info(f"Sending {alert_level['prefix']} alert for {index_name}")
-    await context.bot.send_message(chat_id=NOTIFICATION_CHAT_ID, text=message)
-
+    await context.bot.send_message(chat_id=NOTIFICATION_CHAT_ID, text=message, parse_mode=ParseMode.MARKDOWN_V2)
 
 async def send_daily_status(
     context: ContextTypes.DEFAULT_TYPE,
@@ -225,12 +280,17 @@ async def send_daily_status(
     sensex_change: float,
     nifty_change: float,
 ) -> None:
-    """Send daily morning status update."""
-    message = f"📊 Daily Market Update\n\n"
-    message += f"Sensex: {sensex_price:.2f} ({sensex_change:+.2%})\n"
-    message += f"Nifty: {nifty_price:.2f} ({nifty_change:+.2%})"
-    await context.bot.send_message(chat_id=NOTIFICATION_CHAT_ID, text=message)
-
+    """Send daily morning status update with improved formatting."""
+    sensex_emoji = "🟢" if sensex_change >= 0 else "🔴"
+    nifty_emoji = "🟢" if nifty_change >= 0 else "🔴"
+    
+    message = (
+        "🌅 *Daily Market Update*\n\n"
+        f"{sensex_emoji} *Sensex:* {escape_markdown_v2(f'{sensex_price:.2f}')} \\({escape_markdown_v2(f'{sensex_change:+.2%}')}\\)\n"
+        f"{nifty_emoji} *Nifty:* {escape_markdown_v2(f'{nifty_price:.2f}')} \\({escape_markdown_v2(f'{nifty_change:+.2%}')}\\)\n\n"
+        "_Use /check for real\\-time updates_"
+    )
+    await context.bot.send_message(chat_id=NOTIFICATION_CHAT_ID, text=message, parse_mode=ParseMode.MARKDOWN_V2)
 
 async def manual_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Manually check and report current stock prices."""
@@ -245,25 +305,32 @@ async def manual_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
         if sensex_change is None or nifty_change is None:
             await update.message.reply_text(
-                "Sorry, insufficient data is available. The market might be closed or there might be a data issue."
+                "⚠️ *Insufficient Data*\n\n"
+                "Sorry, I couldn't fetch the latest market data\\. "
+                "This might be due to market closure or a temporary data issue\\.\n\n"
+                "Please try again later\\.",
+                parse_mode=ParseMode.MARKDOWN_V2
             )
             return
 
-        message = f"Current Stock Prices:\n"
-        message += (
-            f"Sensex: {sensex_current:.2f} ({sensex_change:+.2%} from previous close)\n"
-        )
-        message += (
-            f"Nifty: {nifty_current:.2f} ({nifty_change:+.2%} from previous close)"
+        message = (
+            "📊 *Current Stock Prices*\n\n"
+            f"*Sensex:* {escape_markdown_v2(f'{sensex_current:.2f}')} \\({escape_markdown_v2(f'{sensex_change:+.2%}')}\\)\n"
+            f"*Nifty:* {escape_markdown_v2(f'{nifty_current:.2f}')} \\({escape_markdown_v2(f'{nifty_change:+.2%}')}\\)\n\n"
+            "_Percentage change is from the previous close\\._"
         )
 
-        await update.message.reply_text(message)
+        await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN_V2)
 
     except Exception as e:
         logger.error(f"Error in manual check: {e}")
         await update.message.reply_text(
-            "Sorry, there was an error fetching the current prices. Please try again later."
+            "❌ *Error*\n\n"
+            "I encountered an issue while fetching the current prices\\. "
+            "Please try again later or contact the bot administrator if the problem persists\\.",
+            parse_mode=ParseMode.MARKDOWN_V2
         )
+
 
 
 def main() -> None:
