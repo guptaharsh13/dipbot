@@ -121,14 +121,14 @@ async def resume_alerts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def get_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Get current bot status and configuration."""
-    alert_thresholds = '  '.join([f"{t['emoji']} {escape_markdown_v2(f'{t['threshold']:.1%}')}" for t in ALERT_LEVELS])
+    alert_thresholds = '\n'.join([f"  • {t['emoji']} {escape_markdown_v2(f'{t['threshold']:.1%}')}" for t in ALERT_LEVELS])
     
     status_message = (
         "🤖 *Bot Status and Configuration*\n\n"
-        f"• *Alerts:* {'🔕 Paused' if alerts_paused else '🔔 Active'}\n"
-        f"• *Alert Thresholds:*\n  {alert_thresholds}\n"
+        f"• *Alerts:* {'Paused' if alerts_paused else 'Active'}\n"
+        f"• *Alert Thresholds:*\n\n{alert_thresholds}\n\n"
         f"• *Check Interval:* Every {CHECK_INTERVAL // 60} minutes\n"
-        f"• *Morning Update:* Scheduled at {MORNING_UPDATE_TIME}\n\n"
+        f"• *Morning Update:* Scheduled at {escape_markdown_v2(MORNING_UPDATE_TIME)} IST\n\n"
         "Use /help to see available commands\\."
     )
     await update.message.reply_text(status_message, parse_mode=ParseMode.MARKDOWN_V2)
@@ -203,6 +203,7 @@ async def check_and_send_alert(
     """Check if an alert should be sent and send it with the appropriate formatting."""
     for level in reversed(ALERT_LEVELS):
         threshold = level["threshold"]
+        print(threshold, price_change)
         if (threshold > 0 and price_change >= threshold) or (threshold < 0 and price_change <= threshold):
             await send_alert(
                 context, index_name, current_price, previous_close, price_change, level
@@ -229,8 +230,8 @@ async def send_alert(
         f"{color} *Current Price:* {escape_markdown_v2(f'{current_price:.2f}')}\n"
         f"📊 *Previous Close:* {escape_markdown_v2(f'{previous_close:.2f}')}\n"
         f"{direction} *Change:* {escape_markdown_v2(f'{price_change:+.2%}')} \\({escape_markdown_v2(f'{current_price - previous_close:+.2f}')}\\)\n\n"
-        f"🎯 *Alert Threshold:* {escape_markdown_v2(f'{alert_level['threshold']:.1%}')}\n\n"
-        "_Use /stop\\_alerts to pause notifications_"
+        f"🎯 *Alert Threshold:* {escape_markdown_v2(f'{alert_level['threshold']:.3%}')}\n\n"
+        "Use /stop\\_alerts to pause notifications"
     )
     logger.info(f"Sending {alert_level['prefix']} alert for {index_name}")
     await context.bot.send_message(chat_id=NOTIFICATION_CHAT_ID, text=message, parse_mode=ParseMode.MARKDOWN_V2)
@@ -243,16 +244,16 @@ async def send_daily_status(
     nifty_change: float,
 ) -> None:
     """Send daily morning status update with improved formatting."""
-    sensex_emoji = "🟢" if sensex_change >= 0 else "🔴"
-    nifty_emoji = "🟢" if nifty_change >= 0 else "🔴"
+    sensex_emoji = "📈" if sensex_change >= 0 else "📉"
+    nifty_emoji = "📈" if nifty_change >= 0 else "📉"
     
     ist_now = utc_to_ist(datetime.now(UTC))
     
     message = (
         f"🌅 *Daily Market Update* \\({escape_markdown_v2(ist_now.strftime('%Y-%m-%d %H:%M'))} IST\\)\n\n"
-        f"{sensex_emoji} *Sensex:* {escape_markdown_v2(f'{sensex_price:.2f}')} \\({escape_markdown_v2(f'{sensex_change:+.2%}')}\\)\n"
-        f"{nifty_emoji} *Nifty:* {escape_markdown_v2(f'{nifty_price:.2f}')} \\({escape_markdown_v2(f'{nifty_change:+.2%}')}\\)\n\n"
-        "_Use /check for real\\-time updates_"
+        f"{sensex_emoji} *Sensex* {escape_markdown_v2(f' - {sensex_price:.2f}')} \\({escape_markdown_v2(f'{sensex_change:+.2%}')}\\)\n"
+        f"{nifty_emoji} *Nifty* {escape_markdown_v2(f' - {nifty_price:.2f}')} \\({escape_markdown_v2(f'{nifty_change:+.2%}')}\\)\n\n"
+        "Use /check for real\\-time updates"
     )
     await context.bot.send_message(chat_id=NOTIFICATION_CHAT_ID, text=message, parse_mode=ParseMode.MARKDOWN_V2)
 
@@ -279,9 +280,9 @@ async def manual_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
         message = (
             "📊 *Current Stock Prices*\n\n"
-            f"*Sensex:* {escape_markdown_v2(f'{sensex_current:.2f}')} \\({escape_markdown_v2(f'{sensex_change:+.2%}')}\\)\n"
-            f"*Nifty:* {escape_markdown_v2(f'{nifty_current:.2f}')} \\({escape_markdown_v2(f'{nifty_change:+.2%}')}\\)\n\n"
-            "_Percentage change is from the previous close\\._"
+            f"*Sensex* {escape_markdown_v2(f'- {sensex_current:.2f}')} \\({escape_markdown_v2(f'{sensex_change:+.2%}')}\\)\n"
+            f"*Nifty* {escape_markdown_v2(f'- {nifty_current:.2f}')} \\({escape_markdown_v2(f'{nifty_change:+.2%}')}\\)\n\n"
+            "ℹ️ Percentage change is from the previous close\\."
         )
 
         await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN_V2)
