@@ -1,12 +1,13 @@
 import os
-import asyncio
 import logging
 from datetime import datetime, timedelta
 import yfinance as yf
+import re
 from telegram import Update
 from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from dotenv import load_dotenv
+import pytz
 
 # Load environment variables
 load_dotenv()
@@ -55,40 +56,15 @@ MORNING_UPDATE_TIME = os.getenv("MORNING_UPDATE_TIME", "09:15")
 # Flag to control alert pausing
 alerts_paused = False
 
-
-import os
-import asyncio
-import logging
-from datetime import datetime, timedelta
-import yfinance as yf
-from telegram import Update
-from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, ContextTypes
-from dotenv import load_dotenv
-
-# ... (previous code remains unchanged)
-
-def escape_markdown(text):
-    """Helper function to escape special characters for MarkdownV2."""
-    escape_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-    return ''.join('\\' + char if char in escape_chars else char for char in text)
-
-import os
-import asyncio
-import logging
-from datetime import datetime, timedelta
-import yfinance as yf
-import re
-from telegram import Update
-from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, ContextTypes
-from dotenv import load_dotenv
-
+# Timezone settings
+IST = pytz.timezone('Asia/Kolkata')
+UTC = pytz.UTC
 
 def escape_markdown_v2(text):
     """Helper function to escape special characters for MarkdownV2."""
     escape_chars = r'_*[]()~`>#+-=|{}.!'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', str(text))
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a welcome message when the command /start is issued."""
@@ -112,11 +88,13 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "• /check \\- Manually request current stock prices\n"
         "• /stop\\_alerts \\- Pause alerts until the next morning\n"
         "• /resume\\_alerts \\- Resume paused alerts\n"
-        "• /status \\- Get the current bot configuration and status\n\n"
+        "• /status \\- Get the current bot configuration and status\n"
+        "• /set\\_morning\\_time HH:MM \\- Set the morning update time\n\n"
         "ℹ️ The bot will automatically send alerts for significant market movements "
         "and provide a daily morning update at the configured time\\."
     )
     await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN_V2)
+
 
 async def stop_alerts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Pause alerts until next morning."""
@@ -155,14 +133,12 @@ async def get_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     )
     await update.message.reply_text(status_message, parse_mode=ParseMode.MARKDOWN_V2)
 
-
 def get_stock_data(symbol: str, days: int = 5):
     """Fetch stock data for the given symbol."""
     end_date = datetime.now()
     start_date = end_date - timedelta(days=days)
     data = yf.Ticker(symbol).history(start=start_date, end=end_date)
     return data
-
 
 def calculate_price_change(data):
     """Calculate price change from the most recent data."""
@@ -173,28 +149,18 @@ def calculate_price_change(data):
     price_change = (current_price - previous_close) / previous_close
     return current_price, previous_close, price_change
 
-
 async def check_prices(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Check the current prices of Sensex and Nifty and send notifications based on alert thresholds."""
     global alerts_paused
 
     try:
-        current_time = datetime.now().time()
-        morning_update_time = datetime.strptime(MORNING_UPDATE_TIME, "%H:%M").time()
-
-        # Reset alerts_paused flag at the morning update time
-        if (
-            current_time.hour == morning_update_time.hour
-            and current_time.minute == morning_update_time.minute
-        ):
-            alerts_paused = False
-
+        current_time = datetime.now(UTC)
+        ist_time = utc_to_ist(current_time)
+        
         sensex_data = get_stock_data(SENSEX_SYMBOL)
         nifty_data = get_stock_data(NIFTY_SYMBOL)
 
-        sensex_current, sensex_previous, sensex_change = calculate_price_change(
-            sensex_data
-        )
+        sensex_current, sensex_previous, sensex_change = calculate_price_change(sensex_data)
         nifty_current, nifty_previous, nifty_change = calculate_price_change(nifty_data)
 
         logger.info(
@@ -208,14 +174,12 @@ async def check_prices(context: ContextTypes.DEFAULT_TYPE) -> None:
             logger.warning("Insufficient data available. Skipping price check.")
             return
 
-        # Send morning update
-        if (
-            current_time.hour == morning_update_time.hour
-            and current_time.minute == morning_update_time.minute
-        ):
+        # Check if it's time for the morning update
+        if context.job.data.get('is_morning_update', False):
             await send_daily_status(
                 context, sensex_current, nifty_current, sensex_change, nifty_change
             )
+            alerts_paused = False  # Reset alerts_paused flag after morning update
 
         # Check against alert thresholds if alerts are not paused
         if not alerts_paused:
@@ -228,7 +192,6 @@ async def check_prices(context: ContextTypes.DEFAULT_TYPE) -> None:
 
     except Exception as e:
         logger.error(f"Error checking prices: {e}")
-
 
 async def check_and_send_alert(
     context: ContextTypes.DEFAULT_TYPE,
@@ -245,7 +208,6 @@ async def check_and_send_alert(
                 context, index_name, current_price, previous_close, price_change, level
             )
             break
-
 
 async def send_alert(
     context: ContextTypes.DEFAULT_TYPE,
@@ -284,8 +246,10 @@ async def send_daily_status(
     sensex_emoji = "🟢" if sensex_change >= 0 else "🔴"
     nifty_emoji = "🟢" if nifty_change >= 0 else "🔴"
     
+    ist_now = utc_to_ist(datetime.now(UTC))
+    
     message = (
-        "🌅 *Daily Market Update*\n\n"
+        f"🌅 *Daily Market Update* \\({escape_markdown_v2(ist_now.strftime('%Y-%m-%d %H:%M'))} IST\\)\n\n"
         f"{sensex_emoji} *Sensex:* {escape_markdown_v2(f'{sensex_price:.2f}')} \\({escape_markdown_v2(f'{sensex_change:+.2%}')}\\)\n"
         f"{nifty_emoji} *Nifty:* {escape_markdown_v2(f'{nifty_price:.2f}')} \\({escape_markdown_v2(f'{nifty_change:+.2%}')}\\)\n\n"
         "_Use /check for real\\-time updates_"
@@ -331,6 +295,68 @@ async def manual_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             parse_mode=ParseMode.MARKDOWN_V2
         )
 
+def ist_to_utc(ist_time_str):
+    """Convert IST time string to UTC datetime."""
+    ist_time = datetime.strptime(ist_time_str, "%H:%M").time()
+    ist_datetime = datetime.combine(datetime.now(IST).date(), ist_time)
+    ist_datetime = IST.localize(ist_datetime)
+    return ist_datetime.astimezone(UTC)
+
+def utc_to_ist(utc_datetime):
+    """Convert UTC datetime to IST datetime."""
+    return utc_datetime.astimezone(IST)
+
+async def update_morning_job(application: Application) -> None:
+    """Update the job for morning updates based on the new MORNING_UPDATE_TIME."""
+    job_queue = application.job_queue
+    
+    # Remove existing morning update job if any
+    for job in job_queue.jobs():
+        if job.data and job.data.get('is_morning_update', False):
+            job.schedule_removal()
+    
+    # Schedule new morning update job
+    utc_time = ist_to_utc(MORNING_UPDATE_TIME)
+    job_queue.run_daily(
+        check_prices,
+        time=utc_time.time(),
+        days=(0, 1, 2, 3, 4, 5, 6),  # Run every day
+        data={'is_morning_update': True}
+    )
+
+async def set_morning_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Set the morning update time."""
+    global MORNING_UPDATE_TIME
+    
+    if not context.args or len(context.args) != 1:
+        await update.message.reply_text(
+            "⚠️ Please provide the time in HH:MM format \\(IST\\)\\. For example: `/set_morning_time 09:15`",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        return
+
+    new_time = context.args[0]
+    try:
+        # Validate the time format
+        datetime.strptime(new_time, "%H:%M")
+        MORNING_UPDATE_TIME = new_time
+        
+        # Update the job for morning updates
+        await update_morning_job(context.application)
+        
+        # Convert to UTC for display
+        utc_time = ist_to_utc(MORNING_UPDATE_TIME)
+        
+        await update.message.reply_text(
+            f"✅ Morning update time has been set to {escape_markdown_v2(MORNING_UPDATE_TIME)} IST "
+            f"\\({escape_markdown_v2(utc_time.strftime('%H:%M'))} UTC\\)\\.",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+    except ValueError:
+        await update.message.reply_text(
+            "⚠️ Invalid time format\\. Please use HH:MM format \\(IST\\)\\.",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
 
 
 def main() -> None:
@@ -344,14 +370,17 @@ def main() -> None:
     application.add_handler(CommandHandler("stop_alerts", stop_alerts))
     application.add_handler(CommandHandler("resume_alerts", resume_alerts))
     application.add_handler(CommandHandler("status", get_status))
+    application.add_handler(CommandHandler("set_morning_time", set_morning_time))
 
     # Set up job to check prices periodically
     job_queue = application.job_queue
-    job_queue.run_repeating(check_prices, interval=CHECK_INTERVAL, first=10)
+    job_queue.run_repeating(check_prices, interval=CHECK_INTERVAL, first=10, data={'is_morning_update': False})
+
+    # Set up initial morning update job
+    application.job_queue.run_once(update_morning_job, when=0, data={'application': application})
 
     # Run the bot
     application.run_polling()
-
 
 if __name__ == "__main__":
     main()
